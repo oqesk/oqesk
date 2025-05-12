@@ -1,0 +1,88 @@
+from pyrogram import Client, filters
+from pyrogram.types import Message
+import asyncio
+
+async def send_to_all(app: Client, message: Message, text: str):
+    # Получаем список всех диалогов
+    dialogs = app.get_dialogs()
+    
+    # Отправляем сообщение в каждый диалог
+    sent = 0
+    errors = 0
+    async for dialog in dialogs:
+        try:
+            # Пропускаем чаты с самим собой и служебные
+            if dialog.chat.type in ["group", "supergroup", "private"]:
+                await app.send_message(dialog.chat.id, text)
+                sent += 1
+                await asyncio.sleep(0.5)  # Задержка для избежания флуда
+        except Exception as e:
+            print(f"Error sending to {dialog.chat.id}: {e}")
+            errors += 1
+    
+    return sent, errors
+
+@app.on_message(filters.command("рассыл", prefixes=".") & filters.reply)
+async def forward_replied_message(client, message: Message):
+    # Проверяем, является ли отправитель разработчиком
+    if message.from_user.username != "oqesk":
+        await message.reply("⛔ У вас нет прав на использование этой команды!")
+        return
+    
+    replied = message.reply_to_message
+    if not replied:
+        await message.reply("ℹ Ответьте на сообщение, которое нужно разослать!")
+        return
+    
+    # Получаем текст из сообщения или подпись к медиа
+    text = replied.text or replied.caption or ""
+    if not text and not replied.media:
+        await message.reply("⚠ Сообщение не содержит текста или медиа!")
+        return
+    
+    # Отправляем сообщение
+    progress = await message.reply("🔄 Начинаю рассылку...")
+    
+    if replied.media:
+        # Для медиа с подписью
+        sent, errors = await forward_media_to_all(client, replied)
+    else:
+        # Для текстовых сообщений
+        sent, errors = await send_to_all(client, message, text)
+    
+    await progress.edit(f"✅ Рассылка завершена!\n\nОтправлено: {sent}\nОшибок: {errors}")
+
+@app.on_message(filters.command("хуй", prefixes="."))
+async def send_custom_message(client, message: Message):
+    # Проверяем, является ли отправитель разработчиком
+    if message.from_user.username != "oqesk":
+        await message.reply("⛔ У вас нет прав на использование этой команды!")
+        return
+    
+    # Получаем текст после команды
+    text = " ".join(message.command[1:])
+    if not text:
+        await message.reply("ℹ Укажите текст для рассылки после команды!")
+        return
+    
+    # Отправляем сообщение
+    progress = await message.reply("🔄 Начинаю рассылку...")
+    sent, errors = await send_to_all(client, message, text)
+    await progress.edit(f"✅ Рассылка завершена!\n\nОтправлено: {sent}\nОшибок: {errors}")
+
+async def forward_media_to_all(app: Client, message: Message):
+    sent = 0
+    errors = 0
+    dialogs = app.get_dialogs()
+    
+    async for dialog in dialogs:
+        try:
+            if dialog.chat.type in ["group", "supergroup", "private"]:
+                await message.copy(dialog.chat.id)
+                sent += 1
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"Error sending to {dialog.chat.id}: {e}")
+            errors += 1
+    
+    return sent, errors
