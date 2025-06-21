@@ -1,0 +1,55 @@
+# meta developer: @user6268
+# scope: hikka_only
+
+from .. import loader, utils
+from gtts import gTTS
+import os
+import asyncio
+
+@loader.tds
+class TextToVoiceMod(loader.Module):
+    """Озвучивает текст как голосовое сообщение"""
+    strings = {"name": "TextToVoice"}
+
+    async def vtextcmd(self, message):
+        """<текст> — озвучивает текст"""
+        text = utils.get_args_raw(message)
+        if not text:
+            await message.edit("❌ Укажи текст: `.vtext Пример текста`")
+            return
+
+        await self._speak_text(text, message)
+
+    async def rtextcmd(self, message):
+        """Озвучивает сообщение по реплаю"""
+        reply = await message.get_reply_message()
+        if not reply or not reply.text:
+            await message.edit("❌ Ответь на текстовое сообщение")
+            return
+
+        await self._speak_text(reply.text, message)
+
+    async def _speak_text(self, text, message):
+        temp_path = "voice_message.ogg"
+        try:
+            tts = gTTS(text, lang="ru")
+            tts.save("voice.mp3")
+
+            # Преобразуем в .ogg opus для голосового
+            os.system("ffmpeg -i voice.mp3 -c:a libopus -b:a 64k -vbr on -compression_level 10 " + temp_path + " -y")
+
+            await message.client.send_file(
+                message.chat_id,
+                temp_path,
+                voice_note=True,
+                reply_to=message.reply_to_msg_id
+            )
+            await message.delete()
+
+        except Exception as e:
+            await message.edit(f"❌ Ошибка: {e}")
+
+        finally:
+            for f in ["voice.mp3", temp_path]:
+                if os.path.exists(f):
+                    os.remove(f)
