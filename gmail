@@ -1,0 +1,30 @@
+Разработчик: @user9927
+
+import requests import random import string
+
+API_URL = "https://api.mail.tm"
+
+def generate_random_name(): return ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+
+def create_account(): username = generate_random_name() password = generate_random_name() + "A1!" domain = "@cloud-mail.top" email = username + domain
+
+response = requests.post(
+    f"{API_URL}/accounts",
+    json={"address": email, "password": password}
+)
+
+if response.status_code == 201:
+    print("==============================")
+    print(f"✅ Email: {email}")
+    print(f"🔑 Password: {password}")
+    print("==============================")
+else:
+    print("==============================")
+    print(f"❌ Ошибка: {response.status_code}")
+    print(response.text)
+    print("==============================")
+
+def main(): while True: command = input("Напиши .gmail для создания временной почты: ").strip().lower() if command == ".gmail": create_account() else: print("🚫 Неизвестная команда. Напиши .gmail")
+
+if name == "main": main()
+
