@@ -1,0 +1,159 @@
+# ------------------------------------------------------------
+# Модуль: ProfileCopier
+# Описание: Копирование профилей Telegram
+# Автор: @user9927
+# ------------------------------------------------------------
+
+from .. import loader, utils
+from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.account import UpdateProfileRequest, UpdateEmojiStatusRequest
+from telethon.tl.functions.photos import UploadProfilePhotoRequest, DeletePhotosRequest
+from telethon import types
+import io
+import base64
+import logging
+import asyncio
+
+logger = logging.getLogger(__name__)
+
+@loader.tds
+class ProfileCopierMod(loader.Module):
+    """Копирование профилей Telegram | by @oqesk"""
+    strings = {
+        "name": "ProfileCopier",
+        "backup_saved": "💾 Текущий профиль сохранен (включая премиум-стикер)!",
+        "profile_copied": "✅ Профиль скопирован!",
+        "profile_restored": "🔙 Профиль восстановлен (включая премиум-стикер)!",
+        "help_msg": (
+            "🛠 <b>Доступные команды:</b>\n\n"
+            "<b>Профиль:</b>\n"
+            "<code>.backupprofile</code> - сохранить текущий профиль\n"
+            "<code>.copyprofile</code> - скопировать чужой профиль\n"
+            "<code>.restoreprofile</code> - восстановить профиль"
+        ),
+        "premium_warning": "⚠️ Не удалось скопировать премиум-стикер"
+    }
+
+    async def client_ready(self, client, db):
+        self.client = client
+        self.db = db
+
+    async def backupprofilecmd(self, message):
+        """Сохранить текущий профиль (включая премиум-стикер)"""
+        try:
+            user = await self.client.get_me()
+            full = await self.client(GetFullUserRequest(user.id))
+
+            emoji_status = None
+            if hasattr(user, 'emoji_status') and user.emoji_status:
+                emoji_status = user.emoji_status.document_id
+
+            backup = {
+                "first_name": user.first_name or "",
+                "last_name": user.last_name or "",
+                "about": full.full_user.about or "",
+                "avatar": None,
+                "emoji_status": emoji_status
+            }
+
+            photos = await self.client.get_profile_photos(user.id)
+            if photos:
+                photo = await self.client.download_media(photos[0], bytes)
+                if isinstance(photo, bytes):
+                    backup["avatar"] = base64.b64encode(photo).decode('utf-8')
+
+            self.db.set("ProfileCopier", "backup", backup)
+            await utils.answer(message, self.strings["backup_saved"])
+
+        except Exception as e:
+            logger.error(f"Backup error: {e}", exc_info=True)
+            await utils.answer(message, f"⚠️ Ошибка: {e}")
+
+    async def copyprofilecmd(self, message):
+        """Скопировать чужой профиль"""
+        try:
+            args = utils.get_args_raw(message)
+            reply = await message.get_reply_message()
+
+            if args:
+                user = await self.client.get_entity(args)
+            elif reply:
+                user = await reply.get_sender()
+            else:
+                await utils.answer(message, "❌ Укажите пользователя!")
+                return
+
+            full = await self.client(GetFullUserRequest(user.id))
+
+            photos = await self.client.get_profile_photos(user.id)
+            if photos:
+                await self.client(DeletePhotosRequest(
+                    await self.client.get_profile_photos("me")
+                ))
+                photo = await self.client.download_media(photos[0])
+                await self.client(UploadProfilePhotoRequest(
+                    file=await self.client.upload_file(photo)
+                ))
+
+            await self.client(UpdateProfileRequest(
+                first_name=user.first_name or "",
+                last_name=user.last_name or "",
+                about=full.full_user.about[:70] if full.full_user.about else ""
+            ))
+
+            if hasattr(user, 'emoji_status') and user.emoji_status:
+                try:
+                    await self.client(UpdateEmojiStatusRequest(
+                        types.EmojiStatus(user.emoji_status.document_id)
+                    ))
+                except Exception as e:
+                    logger.error(f"Emoji status error: {e}", exc_info=True)
+                    await utils.answer(message, self.strings["premium_warning"])
+
+            msg = await utils.answer(message, self.strings["profile_copied"])
+            await asyncio.sleep(3)
+            await msg.delete()
+
+        except Exception as e:
+            logger.error(f"Copy error: {e}", exc_info=True)
+            await utils.answer(message, f"⚠️ Ошибка: {e}")
+
+    async def restoreprofilecmd(self, message):
+        """Восстановить профиль (включая премиум-стикер)"""
+        try:
+            backup = self.db.get("ProfileCopier", "backup")
+            if not backup:
+                await utils.answer(message, "❌ Нет сохраненного профиля!")
+                return
+
+            if backup.get("avatar"):
+                photo_bytes = base64.b64decode(backup["avatar"].encode('utf-8'))
+                photo_file = await self.client.upload_file(
+                    io.BytesIO(photo_bytes),
+                    file_name="photo.jpg"
+                )
+                await self.client(UploadProfilePhotoRequest(file=photo_file))
+
+            await self.client(UpdateProfileRequest(
+                first_name=backup.get("first_name", ""),
+                last_name=backup.get("last_name", ""),
+                about=backup.get("about", "")
+            ))
+
+            if backup.get("emoji_status"):
+                try:
+                    await self.client(UpdateEmojiStatusRequest(
+                        types.EmojiStatus(backup["emoji_status"])
+                    ))
+                except Exception as e:
+                    logger.error(f"Emoji restore error: {e}", exc_info=True)
+
+            await utils.answer(message, self.strings["profile_restored"])
+
+        except Exception as e:
+            logger.error(f"Restore error: {e}", exc_info=True)
+            await utils.answer(message, f"⚠️ Ошибка: {e}")
+
+    async def watcher(self, message):
+        if getattr(message, "command", None) == "help":
+            await utils.answer(message, self.strings["help_msg"])
