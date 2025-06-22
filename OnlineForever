@@ -1,0 +1,28 @@
+
+from .. import loader
+from asyncio import sleep
+from telethon.tl.functions.account import UpdateStatusRequest
+
+@loader.tds
+class AlwaysOnlineMod(loader.Module):
+    """Модуль, который держит тебя всегда онлайн в Telegram.
+
+    👨‍💻 Разработчик: @user6268
+    """
+    strings = {"name": "AlwaysOnline"}
+
+    async def client_ready(self, client, db):
+        self.db = db
+
+    async def alwaysonlinecmd(self, message):
+        """Включить/выключить вечный онлайн. Используй команду: .alwaysonline"""
+        status_key = "AlwaysOnline"
+        if not self.db.get(status_key, "enabled", False):
+            self.db.set(status_key, "enabled", True)
+            await message.edit("✅ Вечный онлайн включен.\nРазработчик: @user6268")
+            while self.db.get(status_key, "enabled"):
+                await message.client(UpdateStatusRequest(offline=False))
+                await sleep(60)
+        else:
+            self.db.set(status_key, "enabled", False)
+            await message.edit("❌ Вечный онлайн выключен.\nРазработчик: @user6268")
